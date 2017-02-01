@@ -742,7 +742,7 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     if nsevent == nil { return None; }
 
     let event_type = nsevent.eventType();
-    appkit::NSApp().sendEvent_(if let appkit::NSKeyDown = event_type { nil } else { nsevent });
+    appkit::NSApp().sendEvent_(nsevent);
 
     match event_type {
         appkit::NSLeftMouseDown         => { Some(Event::MouseInput(ElementState::Pressed, MouseButton::Left)) },
