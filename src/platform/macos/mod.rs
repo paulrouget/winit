@@ -744,6 +744,11 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     let event_type = nsevent.eventType();
     appkit::NSApp().sendEvent_(nsevent);
 
+    if event_type as u64 == 21 {
+        // See https://github.com/servo/cocoa-rs/issues/155
+        return None;
+    }
+
     match event_type {
         appkit::NSLeftMouseDown         => { Some(Event::MouseInput(ElementState::Pressed, MouseButton::Left)) },
         appkit::NSLeftMouseUp           => { Some(Event::MouseInput(ElementState::Released, MouseButton::Left)) },
