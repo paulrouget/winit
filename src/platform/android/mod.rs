@@ -11,6 +11,7 @@ use WindowId as RootWindowId;
 use events::{Touch, TouchPhase};
 use window::MonitorId as RootMonitorId;
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 use CursorState;
@@ -18,6 +19,7 @@ use WindowAttributes;
 
 pub struct EventsLoop {
     event_rx: Receiver<android_glue::Event>,
+    stopped: Cell<bool>,
 }
 
 #[derive(Clone)]
@@ -29,6 +31,7 @@ impl EventsLoop {
         android_glue::add_sender(tx);
         EventsLoop {
             event_rx: rx,
+            stopped: Cell::new(false),
         }
     }
 
@@ -67,12 +70,22 @@ impl EventsLoop {
                         }),
                     })
                 },
+                android_glue::Event::Wake => {
+                    if self.is_stopped() {
+                        // Never awake when the activity is stopped
+                        // This avoids "call to OpenGL ES API with no current context" crashes
+                        return None;
+                    }
+                    Some(Event::Awakened)
+                }
                 android_glue::Event::InitWindow => {
                     // The activity went to foreground.
+                    self.on_surface_created();
                     Some(Event::Suspended(false))
                 },
                 android_glue::Event::TermWindow => {
                     // The activity went to background.
+                    self.on_surface_destroyed();
                     Some(Event::Suspended(true))
                 },
                 android_glue::Event::WindowResized |
@@ -106,6 +119,37 @@ impl EventsLoop {
                 callback(event);
             }
         };
+    }
+
+    // Android has started the activity or sent it to foreground.
+    // Restore the EGL surface and animation loop.
+    fn on_surface_created(&self) {
+        if self.stopped.get() {
+           self.stopped.set(false);
+           unsafe {
+               let native_window = android_glue::get_native_window();
+               self.context.on_surface_created(native_window as *const _);
+           }
+
+           // We stopped the renderloop when on_surface_destroyed was called.
+           // We need to wakeup the event loop again.
+           android_glue::wake_event_loop();
+        }
+    }
+
+    // Android has stopped the activity or sent it to background.
+    // Release the EGL surface and stop the animation loop.
+    fn on_surface_destroyed(&self) {
+        if !self.stopped.get() {
+            self.stopped.set(true);
+            unsafe {
+                self.context.on_surface_destroyed();
+            }
+        }
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.get()
     }
 
     pub fn run_forever<F>(&mut self, mut callback: F)
